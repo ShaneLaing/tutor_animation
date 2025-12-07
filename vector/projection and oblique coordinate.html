@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ratio: 平面向量與斜座標區域視覺化</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f2f5;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 { color: #333; margin-bottom: 10px; }
+        .controls {
+            margin-bottom: 15px;
+            background: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+        button {
+            padding: 8px 16px;
+            cursor: pointer;
+            background-color: #e0e0e0;
+            border: none;
+            border-radius: 4px;
+            transition: background 0.3s;
+            font-size: 14px;
+        }
+        button.active { background-color: #007bff; color: white; }
+        button.add-btn { background-color: #28a745; color: white; }
+        button.delete-btn { background-color: #dc3545; color: white; padding: 4px 8px; font-size: 12px; margin-left: 10px;}
+        
+        canvas {
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            cursor: crosshair;
+        }
+        .info-panel {
+            margin-top: 15px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            width: 570px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+        .math-row { margin: 5px 0; }
+        
+        /* 斜座標區域設定樣式 */
+        #constraintSection {
+            margin-top: 15px;
+            border-top: 2px dashed #eee;
+            padding-top: 15px;
+            display: none; /* 預設隱藏，Mode 2 才顯示 */
+        }
+        .input-group { display: flex; gap: 10px; margin-bottom: 10px; }
+        input[type="text"] {
+            flex-grow: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-family: 'Courier New';
+        }
+        #constraintList { list-style: none; padding: 0; margin: 0; }
+        #constraintList li {
+            background: #f8f9fa; padding: 8px; margin-bottom: 5px; border-radius: 4px;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .status-ok { color: #28a745; font-weight: bold; }
+        .status-fail { color: #dc3545; font-weight: bold; }
+
+        /* 函數繪製區域樣式 */
+        #functionSection {
+            margin-top: 15px;
+            border-top: 2px dashed #eee;
+            padding-top: 15px;
+            display: none;
+        }
+        #functionList { list-style: none; padding: 0; margin: 0; }
+        #functionList li {
+            background: #e8f4fc; padding: 8px; margin-bottom: 5px; border-radius: 4px;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        #functionList li .func-color {
+            display: inline-block;
+            width: 20px;
+            height: 3px;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>平面向量與斜座標區域視覺化</h1>
+    
+    <div class="controls">
+        <span>選擇模式：</span>
+        <button id="btnMode1" class="active" onclick="setMode(1)">1. 內積與正射影</button>
+        <button id="btnMode2" onclick="setMode(2)">2. 斜座標系統 (含區域限制)</button>
+    </div>
+
+    <canvas id="vectorCanvas" width="600" height="400"></canvas>
+
+    <div class="info-panel">
+        <div id="infoContent">
+            </div>
+
+        <div id="constraintSection">
+
+        </div>
+
+        <div id="functionSection">
+            <div class="math-row"><strong>繪製函數曲線 (Max 8)</strong></div>
+            <div class="math-row" style="color:#666; font-size: 12px;">支援方程式: x+y=1, 2x-y=4, x=e^y, x=1, y=x^2, y=sin(x)...</div>
+            <div class="input-group">
+                <input type="text" id="functionInput" placeholder="輸入關於 x, y 的方程式 (例如: x+y=1)" onkeypress="handleFunctionKeyPress(event)">
+                <button class="add-btn" onclick="addFunction()">新增函數</button>
+            </div>
+            <ul id="functionList"></ul>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('vectorCanvas');
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+        const origin = { x: width / 2, y: height / 2 };
+
+        // 狀態變數
+        let mode = 1; 
+        let isDragging = null; 
+
+        // 向量定義
+        let vecU = { x: 100, y: -50 };  
+        let vecV = { x: 120, y: 40 };   
+        let pointP = { x: 80, y: -80 }; 
+        // P點在斜座標下的值 (快取用)
+        let pCoords = { x: 0, y: 0 };
+        let isPInside = true;
+
+        // 限制條件列表 (儲存字串與解析後的函數)
+        let constraints = [];
+
+        // 函數曲線列表 (儲存字串、解析後的函數、顏色)
+        let functions = [];
+        const functionColors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8', '#F7DC6F'];
+
+        function init() {
+            checkPointPStatus();
+            draw();
+            updateInfo();
+        }
+
+        function setMode(m) {
+            mode = m;
+            document.getElementById('btnMode1').classList.toggle('active', m === 1);
+            document.getElementById('btnMode2').classList.toggle('active', m === 2);
+            // 切換顯示限制條件區塊
+            document.getElementById('constraintSection').style.display = (m === 2) ? 'block' : 'none';
+            document.getElementById('functionSection').style.display = (m === 2) ? 'block' : 'none';
+            
+            if (mode === 1) {
+                vecU = { x: 100, y: -80 };
+                vecV = { x: 150, y: 0 }; 
+            } else {
+                vecU = { x: 60, y: -20 };
+                vecV = { x: 20, y: -60 };
+                pointP = { x: 140, y: -100 };
+                // 切換到模式2時，重新計算一次區域狀態
+                checkPointPStatus();
+            }
+            draw();
+            updateInfo();
+        }
+
+        
+        // --- 函數曲線處理邏輯 ---
+
+        // 將方程式字串解析為可繪製的函數
+        // 返回 { type: 'y_of_x' | 'x_of_y' | 'implicit', func: Function, xFunc?: Function }
+        function parseFunctionEquation(inputStr) {
+            try {
+                let str = inputStr.trim().toLowerCase().replace(/\s+/g, '');
+                
+                // 分割等號
+                const parts = str.split('=');
+                if (parts.length !== 2) {
+                    return null;
+                }
+                
+                let left = parts[0];
+                let right = parts[1];
+                
+                // 預處理：處理常數 e 和數學函數
+                function preprocessExpr(expr) {
+                    let result = expr;
+                    // 處理數學函數
+                    result = result.replace(/sin\(/g, 'Math.sin(');
+                    result = result.replace(/cos\(/g, 'Math.cos(');
+                    result = result.replace(/tan\(/g, 'Math.tan(');
+                    result = result.replace(/sqrt\(/g, 'Math.sqrt(');
+                    result = result.replace(/abs\(/g, 'Math.abs(');
+                    result = result.replace(/log\(/g, 'Math.log(');
+                    result = result.replace(/ln\(/g, 'Math.log(');
+                    // 處理 e^x 形式
+                    result = result.replace(/e\^/g, 'Math.E**');
+                    // 處理獨立的常數 e
+                    result = result.replace(/\be\b(?![a-z\.])/g, 'Math.E');
+                    // 處理隱式乘法
+                    result = result.replace(/(\d)([xy])/g, '$1*$2');
+                    result = result.replace(/([xy])(\d)/g, '$1*$2');
+                    result = result.replace(/(\))([xy\d])/g, '$1*$2');
+                    result = result.replace(/([xy\d])(\()/g, '$1*$2');
+                    result = result.replace(/([xy])([xy])/g, '$1*$2');
+                    // 處理指數
+                    result = result.replace(/\^/g, '**');
+                    return result;
+                }
+                
+                // 先檢查原始的 left/right（未預處理）來判斷類型
+                const originalLeft = left;
+                const originalRight = right;
+                
+                // 情況1: y = f(x) 形式
+                if (originalLeft === 'y' && !originalRight.includes('y')) {
+                    const processedRight = preprocessExpr(right);
+                    const func = new Function('x', `return (${processedRight});`);
+                    func(0); // 測試
+                    return { type: 'y_of_x', func: func, original: inputStr };
+                }
+                
+                // 情況2: x = f(y) 形式
+                if (originalLeft === 'x' && !originalRight.includes('x')) {
+                    const processedRight = preprocessExpr(right);
+                    const func = new Function('y', `return (${processedRight});`);
+                    func(0); // 測試
+                    return { type: 'x_of_y', func: func, original: inputStr };
+                }
+                
+                // 情況3: x = 常數
+                if (originalLeft === 'x' && !originalRight.includes('x') && !originalRight.includes('y')) {
+                    const processedRight = preprocessExpr(right);
+                    const val = eval(processedRight);
+                    return { type: 'vertical', value: val, original: inputStr };
+                }
+                
+                // 情況4: y = 常數
+                if (originalLeft === 'y' && !originalRight.includes('x') && !originalRight.includes('y')) {
+                    const processedRight = preprocessExpr(right);
+                    const val = eval(processedRight);
+                    return { type: 'horizontal', value: val, original: inputStr };
+                }
+                
+                // 情況5: 隱函數 f(x,y) = g(x,y)，例如 x+y=1, 2x-y=4
+                // 轉換為 f(x,y) - g(x,y) = 0 的形式
+                const processedLeft = preprocessExpr(left);
+                const processedRight = preprocessExpr(right);
+                const implicitExpr = `(${processedLeft}) - (${processedRight})`;
+                const implicitFunc = new Function('x', 'y', `return (${implicitExpr});`);
+                implicitFunc(0, 0); // 測試
+                return { type: 'implicit', func: implicitFunc, original: inputStr };
+                
+            } catch (e) {
+                console.error("函數解析錯誤:", e);
+                return null;
+            }
+        }
+
+        function addFunction() {
+            if (functions.length >= 8) {
+                alert("最多只能新增 8 個函數。");
+                return;
+            }
+            const input = document.getElementById('functionInput');
+            const str = input.value.trim();
+            if (!str) return;
+
+            const parsed = parseFunctionEquation(str);
+            if (parsed) {
+                const color = functionColors[functions.length % functionColors.length];
+                functions.push({ ...parsed, color: color, str: str });
+                input.value = '';
+                updateFunctionUI();
+                draw();
+            } else {
+                alert("方程式格式錯誤，請檢查語法。\n範例: y=x^2, x+y=1, x=e^y");
+            }
+        }
+
+        function removeFunction(index) {
+            functions.splice(index, 1);
+            // 重新分配顏色
+            functions.forEach((f, i) => {
+                f.color = functionColors[i % functionColors.length];
+            });
+            updateFunctionUI();
+            draw();
+        }
+
+        function updateFunctionUI() {
+            const list = document.getElementById('functionList');
+            list.innerHTML = '';
+            functions.forEach((f, i) => {
+                const li = document.createElement('li');
+                li.innerHTML = `<span><span class="func-color" style="background:${f.color}"></span>${f.str}</span> <button class="delete-btn" onclick="removeFunction(${i})">移除</button>`;
+                list.appendChild(li);
+            });
+        }
+
+        function handleFunctionKeyPress(event) {
+            if (event.key === 'Enter') addFunction();
+        }
+
+        // 檢查某個斜座標 (x,y) 是否滿足所有條件
+        function checkAllConstraints(x, y) {
+            if (constraints.length === 0) return true;
+            for (let c of constraints) {
+                try {
+                    if (!c.func(x, y)) return false;
+                } catch (e) {
+                    return false; // 計算錯誤視為不滿足
+                }
+            }
+            return true;
+        }
+
+        // 計算並更新 P 點的狀態
+        function checkPointPStatus() {
+            const det = vecU.x * vecV.y - vecU.y * vecV.x;
+            if (Math.abs(det) > 0.1) {
+                // 克拉瑪公式求斜座標
+                pCoords.x = (pointP.x * vecV.y - pointP.y * vecV.x) / det;
+                pCoords.y = (vecU.x * pointP.y - vecU.y * pointP.x) / det;
+                // 檢查是否在區域內
+                isPInside = checkAllConstraints(pCoords.x, pCoords.y);
+            }
+        }
+
+        // --- 繪圖邏輯 ---
+
+        function draw() {
+            ctx.clearRect(0, 0, width, height);
+            drawGrid();
+
+            if (mode === 1) {
+                drawDotProductMode();
+            } else {
+                // Mode 2: 先畫可行解區域，再畫函數曲線，最後畫向量和點
+                if (constraints.length > 0) {
+                    drawConstraintRegion();
+                }
+                // 繪製函數曲線
+                if (functions.length > 0) {
+                    drawFunctionCurves();
+                }
+                drawObliqueMode();
+            }
+            
+            // 畫原點
+            ctx.beginPath(); ctx.arc(origin.x, origin.y, 4, 0, Math.PI * 2); ctx.fillStyle = '#333'; ctx.fill();
+        }
+
+        // 繪製可行解區域 (透過採樣)
+        function drawConstraintRegion() {
+            const det = vecU.x * vecV.y - vecU.y * vecV.x;
+            if (Math.abs(det) < 0.1) return; // 基底平行，無法形成座標系
+
+            ctx.fillStyle = 'rgba(255, 255, 0, 0.3)'; // 半透明黃色
+            ctx.beginPath();
+
+            // 優化：不逐點掃描，改用小方格掃描以提升效能
+            const step = 4; 
+            for (let px = 0; px < width; px += step) {
+                for (let py = 0; py < height; py += step) {
+                    // 將畫布座標轉換為相對於原點的向量
+                    const relX = px - origin.x;
+                    const relY = py - origin.y;
+
+                    // 反解斜座標 (x, y)
+                    // relX = x * ux + y * vx
+                    // relY = x * uy + y * vy
+                    const obliqueX = (relX * vecV.y - relY * vecV.x) / det;
+                    const obliqueY = (vecU.x * relY - vecU.y * relX) / det;
+
+                    if (checkAllConstraints(obliqueX, obliqueY)) {
+                        ctx.fillRect(px, py, step, step);
+                    }
+                }
+            }
+        }
+
+        // 繪製函數曲線
+        function drawFunctionCurves() {
+            const det = vecU.x * vecV.y - vecU.y * vecV.x;
+            if (Math.abs(det) < 0.1) return;
+
+            // 斜座標轉畫布座標
+            function obliqueToCanvas(ox, oy) {
+                const px = origin.x + ox * vecU.x + oy * vecV.x;
+                const py = origin.y + ox * vecU.y + oy * vecV.y;
+                return { x: px, y: py };
+            }
+
+            // 定義繪製範圍 (斜座標系)
+            const range = 10;
+            const step = 0.05;
+
+            functions.forEach(f => {
+                ctx.beginPath();
+                ctx.strokeStyle = f.color;
+                ctx.lineWidth = 2.5;
+                let started = false;
+
+                if (f.type === 'y_of_x') {
+                    // y = f(x): 對 x 進行採樣
+                    for (let ox = -range; ox <= range; ox += step) {
+                        try {
+                            const oy = f.func(ox);
+                            if (!isFinite(oy) || Math.abs(oy) > range * 2) {
+                                started = false;
+                                continue;
+                            }
+                            const pt = obliqueToCanvas(ox, oy);
+                            if (pt.x < -50 || pt.x > width + 50 || pt.y < -50 || pt.y > height + 50) {
+                                started = false;
+                                continue;
+                            }
+                            if (!started) {
+                                ctx.moveTo(pt.x, pt.y);
+                                started = true;
+                            } else {
+                                ctx.lineTo(pt.x, pt.y);
+                            }
+                        } catch (e) {
+                            started = false;
+                        }
+                    }
+                } else if (f.type === 'x_of_y') {
+                    // x = f(y): 對 y 進行採樣
+                    for (let oy = -range; oy <= range; oy += step) {
+                        try {
+                            const ox = f.func(oy);
+                            if (!isFinite(ox) || Math.abs(ox) > range * 2) {
+                                started = false;
+                                continue;
+                            }
+                            const pt = obliqueToCanvas(ox, oy);
+                            if (pt.x < -50 || pt.x > width + 50 || pt.y < -50 || pt.y > height + 50) {
+                                started = false;
+                                continue;
+                            }
+                            if (!started) {
+                                ctx.moveTo(pt.x, pt.y);
+                                started = true;
+                            } else {
+                                ctx.lineTo(pt.x, pt.y);
+                            }
+                        } catch (e) {
+                            started = false;
+                        }
+                    }
+                } else if (f.type === 'vertical') {
+                    // x = 常數
+                    const ox = f.value;
+                    for (let oy = -range; oy <= range; oy += step) {
+                        const pt = obliqueToCanvas(ox, oy);
+                        if (!started) {
+                            ctx.moveTo(pt.x, pt.y);
+                            started = true;
+                        } else {
+                            ctx.lineTo(pt.x, pt.y);
+                        }
+                    }
+                } else if (f.type === 'horizontal') {
+                    // y = 常數
+                    const oy = f.value;
+                    for (let ox = -range; ox <= range; ox += step) {
+                        const pt = obliqueToCanvas(ox, oy);
+                        if (!started) {
+                            ctx.moveTo(pt.x, pt.y);
+                            started = true;
+                        } else {
+                            ctx.lineTo(pt.x, pt.y);
+                        }
+                    }
+                } else if (f.type === 'implicit') {
+                    // 隱函數: 使用 marching squares 類似方法繪製等高線
+                    drawImplicitCurve(f.func, f.color, range, step * 2);
+                    // 隱函數已在 drawImplicitCurve 中繪製完成，不需要 ctx.stroke()
+                }
+
+                // 只有非隱函數類型才需要 stroke
+                if (f.type !== 'implicit') {
+                    ctx.stroke();
+                }
+            });
+        }
+
+        // 繪製隱函數曲線 (使用等高線追蹤)
+        function drawImplicitCurve(func, color, range, step) {
+            const det = vecU.x * vecV.y - vecU.y * vecV.x;
+            if (Math.abs(det) < 0.1) return;
+
+            function obliqueToCanvas(ox, oy) {
+                const px = origin.x + ox * vecU.x + oy * vecV.x;
+                const py = origin.y + ox * vecU.y + oy * vecV.y;
+                return { x: px, y: py };
+            }
+
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2.5;
+
+            // 使用網格掃描找零點
+            for (let ox = -range; ox < range; ox += step) {
+                for (let oy = -range; oy < range; oy += step) {
+                    try {
+                        // 四個角的值
+                        const v00 = func(ox, oy);
+                        const v10 = func(ox + step, oy);
+                        const v01 = func(ox, oy + step);
+                        const v11 = func(ox + step, oy + step);
+
+                        // 檢查是否跨越零點
+                        const signs = [Math.sign(v00), Math.sign(v10), Math.sign(v01), Math.sign(v11)];
+                        const hasZeroCrossing = signs.some(s => s !== signs[0]) || signs.some(s => s === 0);
+
+                        if (hasZeroCrossing) {
+                            // 線性插值找交點並畫線
+                            const points = [];
+                            
+                            // 底邊
+                            if (v00 * v10 <= 0 && (v00 !== 0 || v10 !== 0)) {
+                                const t = Math.abs(v00) / (Math.abs(v00) + Math.abs(v10) + 0.0001);
+                                points.push({ ox: ox + t * step, oy: oy });
+                            }
+                            // 頂邊
+                            if (v01 * v11 <= 0 && (v01 !== 0 || v11 !== 0)) {
+                                const t = Math.abs(v01) / (Math.abs(v01) + Math.abs(v11) + 0.0001);
+                                points.push({ ox: ox + t * step, oy: oy + step });
+                            }
+                            // 左邊
+                            if (v00 * v01 <= 0 && (v00 !== 0 || v01 !== 0)) {
+                                const t = Math.abs(v00) / (Math.abs(v00) + Math.abs(v01) + 0.0001);
+                                points.push({ ox: ox, oy: oy + t * step });
+                            }
+                            // 右邊
+                            if (v10 * v11 <= 0 && (v10 !== 0 || v11 !== 0)) {
+                                const t = Math.abs(v10) / (Math.abs(v10) + Math.abs(v11) + 0.0001);
+                                points.push({ ox: ox + step, oy: oy + t * step });
+                            }
+
+                            // 連接找到的點
+                            if (points.length >= 2) {
+                                const p1 = obliqueToCanvas(points[0].ox, points[0].oy);
+                                const p2 = obliqueToCanvas(points[1].ox, points[1].oy);
+                                ctx.beginPath();
+                                ctx.moveTo(p1.x, p1.y);
+                                ctx.lineTo(p2.x, p2.y);
+                                ctx.stroke();
+                            }
+                        }
+                    } catch (e) {
+                        // 忽略計算錯誤
+                    }
+                }
+            }
+        }
+
+        function drawDotProductMode() {
+            drawArrow(origin, add(origin, vecV), '#007bff', 'b');
+            const dot = vecU.x * vecV.x + vecU.y * vecV.y;
+            const magV2 = vecV.x * vecV.x + vecV.y * vecV.y;
+            const scale = dot / magV2;
+            const projVec = { x: vecV.x * scale, y: vecV.y * scale };
+            drawArrow(origin, add(origin, projVec), '#28a745', 'proj', 3);
+            ctx.beginPath(); ctx.setLineDash([5, 5]); ctx.moveTo(origin.x + vecU.x, origin.y + vecU.y); ctx.lineTo(origin.x + projVec.x, origin.y + projVec.y); ctx.strokeStyle = '#666'; ctx.stroke(); ctx.setLineDash([]);
+            drawArrow(origin, add(origin, vecU), '#dc3545', 'a');
+        }
+
+        function drawObliqueMode() {
+            drawArrow(origin, add(origin, vecU), '#dc3545', 'u');
+            drawArrow(origin, add(origin, vecV), '#007bff', 'v');
+
+            // 畫分解路徑
+            const ptPos = add(origin, pointP);
+            const uPos = add(origin, { x: vecU.x * pCoords.x, y: vecU.y * pCoords.x });
+            const vPos = add(origin, { x: vecV.x * pCoords.y, y: vecV.y * pCoords.y });
+
+            ctx.beginPath(); ctx.setLineDash([5, 5]);
+            ctx.moveTo(origin.x, origin.y); ctx.lineTo(uPos.x, uPos.y); ctx.lineTo(ptPos.x, ptPos.y);
+            ctx.moveTo(origin.x, origin.y); ctx.lineTo(vPos.x, vPos.y); ctx.lineTo(ptPos.x, ptPos.y);
+            ctx.strokeStyle = '#999'; ctx.stroke(); ctx.setLineDash([]);
+            ctx.fillStyle = '#666';
+            ctx.fillText(`x=${pCoords.x.toFixed(1)}`, uPos.x, uPos.y - 10);
+            ctx.fillText(`y=${pCoords.y.toFixed(1)}`, vPos.x - 20, vPos.y + 20);
+
+            // 畫點 P (根據是否在區域內改變樣式)
+            ctx.beginPath();
+            ctx.arc(ptPos.x, ptPos.y, 8, 0, Math.PI*2);
+            if (constraints.length > 0 && !isPInside) {
+                // 區域外：空心
+                ctx.strokeStyle = '#6f42c1'; ctx.lineWidth = 3; ctx.stroke(); ctx.fillStyle = 'transparent';
+            } else {
+                // 區域內或無限制：實心
+                ctx.fillStyle = '#6f42c1'; ctx.fill();
+            }
+            ctx.fillStyle = '#6f42c1'; ctx.fillText("P", ptPos.x + 12, ptPos.y);
+        }
+
+        // 輔助函式
+        function drawArrow(from, to, color, label, width = 2) {
+            const headlen = 10; const dx = to.x - from.x; const dy = to.y - from.y; const angle = Math.atan2(dy, dx);
+            ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y); ctx.strokeStyle = color; ctx.lineWidth = width; ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(to.x, to.y); ctx.lineTo(to.x - headlen * Math.cos(angle - Math.PI / 6), to.y - headlen * Math.sin(angle - Math.PI / 6)); ctx.lineTo(to.x - headlen * Math.cos(angle + Math.PI / 6), to.y - headlen * Math.sin(angle + Math.PI / 6)); ctx.fillStyle = color; ctx.fill();
+            if (label) { ctx.font = "16px Arial"; ctx.fillStyle = color; ctx.fillText(label, to.x + 10, to.y); }
+        }
+        function drawGrid() {
+            ctx.beginPath(); ctx.strokeStyle = '#eee'; ctx.lineWidth = 1;
+            for (let x = 0; x <= width; x += 50) { ctx.moveTo(x, 0); ctx.lineTo(x, height); }
+            for (let y = 0; y <= height; y += 50) { ctx.moveTo(0, y); ctx.lineTo(width, y); }
+            ctx.stroke();
+            
+            // Mode 2: 繪製斜座標網格
+            if (mode === 2) {
+                drawObliqueGrid();
+            }
+        }
+        
+        // 繪製斜座標網格
+        function drawObliqueGrid() {
+            const det = vecU.x * vecV.y - vecU.y * vecV.x;
+            if (Math.abs(det) < 0.1) return; // 基底平行，無法形成座標系
+            
+            // 斜座標轉畫布座標
+            function obliqueToCanvas(ox, oy) {
+                const px = origin.x + ox * vecU.x + oy * vecV.x;
+                const py = origin.y + ox * vecU.y + oy * vecV.y;
+                return { x: px, y: py };
+            }
+            
+            ctx.save();
+            ctx.lineWidth = 0.5;
+            
+            const gridRange = 10; // 網格範圍 (-10 到 10)
+            
+            // 繪製平行於 v 方向的網格線 (x = 常數)
+            ctx.strokeStyle = 'rgba(220, 53, 69, 0.3)'; // 淡紅色，對應 u 向量
+            for (let i = -gridRange; i <= gridRange; i++) {
+                ctx.beginPath();
+                const p1 = obliqueToCanvas(i, -gridRange);
+                const p2 = obliqueToCanvas(i, gridRange);
+                ctx.moveTo(p1.x, p1.y);
+                ctx.lineTo(p2.x, p2.y);
+                ctx.stroke();
+                
+                // 在 x 軸上標記數字 (只標記整數且不要太密)
+                if (i !== 0 && i % 2 === 0) {
+                    const labelPos = obliqueToCanvas(i, 0);
+                    ctx.fillStyle = 'rgba(220, 53, 69, 0.6)';
+                    ctx.font = '10px Arial';
+                    ctx.fillText(i.toString(), labelPos.x - 5, labelPos.y + 12);
+                }
+            }
+            
+            // 繪製平行於 u 方向的網格線 (y = 常數)
+            ctx.strokeStyle = 'rgba(0, 123, 255, 0.3)'; // 淡藍色，對應 v 向量
+            for (let j = -gridRange; j <= gridRange; j++) {
+                ctx.beginPath();
+                const p1 = obliqueToCanvas(-gridRange, j);
+                const p2 = obliqueToCanvas(gridRange, j);
+                ctx.moveTo(p1.x, p1.y);
+                ctx.lineTo(p2.x, p2.y);
+                ctx.stroke();
+                
+                // 在 y 軸上標記數字
+                if (j !== 0 && j % 2 === 0) {
+                    const labelPos = obliqueToCanvas(0, j);
+                    ctx.fillStyle = 'rgba(0, 123, 255, 0.6)';
+                    ctx.font = '10px Arial';
+                    ctx.fillText(j.toString(), labelPos.x + 5, labelPos.y - 3);
+                }
+            }
+            
+            // 繪製斜座標軸 (x=0 和 y=0)
+            ctx.lineWidth = 1.5;
+            
+            // x 軸 (y=0 的線，平行於 u)
+            ctx.strokeStyle = 'rgba(220, 53, 69, 0.6)';
+            ctx.beginPath();
+            const xAxisP1 = obliqueToCanvas(-gridRange, 0);
+            const xAxisP2 = obliqueToCanvas(gridRange, 0);
+            ctx.moveTo(xAxisP1.x, xAxisP1.y);
+            ctx.lineTo(xAxisP2.x, xAxisP2.y);
+            ctx.stroke();
+            
+            // y 軸 (x=0 的線，平行於 v)
+            ctx.strokeStyle = 'rgba(0, 123, 255, 0.6)';
+            ctx.beginPath();
+            const yAxisP1 = obliqueToCanvas(0, -gridRange);
+            const yAxisP2 = obliqueToCanvas(0, gridRange);
+            ctx.moveTo(yAxisP1.x, yAxisP1.y);
+            ctx.lineTo(yAxisP2.x, yAxisP2.y);
+            ctx.stroke();
+            
+            ctx.restore();
+        }
+        function add(v1, v2) { return { x: v1.x + v2.x, y: v1.y + v2.y }; }
+        function getMousePos(evt) { const rect = canvas.getBoundingClientRect(); return { x: evt.clientX - rect.left - origin.x, y: evt.clientY - rect.top - origin.y }; }
+        function isNear(pos, vec) { return ((pos.x - vec.x)**2 + (pos.y - vec.y)**2) < 400; }
+
+        // 互動事件
+        canvas.addEventListener('mousedown', (e) => {
+            const pos = getMousePos(e);
+            if (mode === 1) {
+                if (isNear(pos, vecU)) isDragging = 'u'; else if (isNear(pos, vecV)) isDragging = 'v';
+            } else {
+                if (isNear(pos, pointP)) isDragging = 'p'; else if (isNear(pos, vecU)) isDragging = 'u'; else if (isNear(pos, vecV)) isDragging = 'v';
+            }
+        });
+        canvas.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            const pos = getMousePos(e);
+            if (isDragging === 'u') vecU = pos;
+            if (isDragging === 'v') vecV = pos;
+            if (isDragging === 'p') pointP = pos;
+            if (mode === 2) checkPointPStatus(); // 拖動時持續檢查 P 點狀態
+            draw();
+            updateInfo();
+        });
+        canvas.addEventListener('mouseup', () => { isDragging = null; });
+
+        function updateInfo() {
+            const content = document.getElementById('infoContent');
+            let html = '';
+            if (mode === 1) {
+                 // ... (Mode 1 資訊內容保持不變)
+                const dot = (vecU.x * vecV.x + vecU.y * vecV.y).toFixed(0);
+                const magU = Math.sqrt(vecU.x**2 + vecU.y**2);
+                const magV = Math.sqrt(vecV.x**2 + vecV.y**2);
+                const cosTheta = dot / (magU * magV);
+                const angle = Math.acos(Math.min(Math.max(cosTheta, -1), 1)) * (180 / Math.PI);
+                const projLen = (dot / magV).toFixed(1);
+                html += `<div class="math-row"><span style="display:inline-block;width:12px;height:12px;margin-right:5px;border-radius:2px;background:#dc3545"></span>向量 a (紅) 長度: ${magU.toFixed(1)}</div>`;
+                html += `<div class="math-row"><span style="display:inline-block;width:12px;height:12px;margin-right:5px;border-radius:2px;background:#007bff"></span>向量 b (藍) 長度: ${magV.toFixed(1)}</div>`;
+                html += `<hr><div class="math-row"><strong>內積</strong> = |a||b|cosθ ≈ ${dot}</div>`;
+                html += `<div class="math-row">夾角 θ ≈ ${angle.toFixed(1)}°</div>`;
+                html += `<hr><div class="math-row"><span style="display:inline-block;width:12px;height:12px;margin-right:5px;border-radius:2px;background:#28a745"></span><strong>正射影長度</strong> = ${projLen}</div>`;
+            } else {
+                html += `<div class="math-row"><strong>線性組合 P = x u + y v</strong></div>`;
+                html += `<div class="math-row">斜座標 (x, y) = (${pCoords.x.toFixed(2)}, ${pCoords.y.toFixed(2)})</div>`;
+                html += `<hr>`;
+                if (constraints.length > 0) {
+                    html += `<div class="math-row">P 點狀態：${isPInside ? '<span class="status-ok">✅ 在可行解區域內</span>' : '<span class="status-fail">❌ 在區域外</span>'}</div>`;
+                    html += `<div class="math-row" style="color:#666;font-size:12px;">(黃色區域為滿足所有條件的範圍)</div>`;
+                } else if (functions.length > 0) {
+                    html += `<div class="math-row" style="color:#666;">已繪製 ${functions.length} 條函數曲線。</div>`;
+                } else {
+                    html += `<div class="math-row" style="color:#666;">尚未新增限制條件或函數曲線。</div>`;
+                }
+            }
+            content.innerHTML = html;
+        }
+        
+        init();
+    </script>
+</body>
+</html>

@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ratio: 數B 圓錐曲線 3D 實驗室</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; background-color: #1a1a1a; }
+        
+        /* 控制面板樣式 */
+        #controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 280px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            backdrop-filter: blur(5px);
+        }
+
+        h2 { margin: 0 0 15px 0; color: #333; font-size: 18px; border-bottom: 2px solid #007bff; padding-bottom: 8px; }
+        
+        .control-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; color: #555; font-weight: 600; font-size: 14px; }
+        input[type=range] { width: 100%; cursor: pointer; }
+        
+        .status-box {
+            background: #e9ecef;
+            padding: 10px;
+            border-radius: 6px;
+            margin-top: 15px;
+            text-align: center;
+        }
+        #curveType { color: #d63384; font-weight: bold; font-size: 18px; }
+        #mathNote { font-size: 12px; color: #666; margin-top: 5px; }
+
+        .btn-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 15px;
+        }
+        button {
+            padding: 8px;
+            border: none;
+            background: #007bff;
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+            font-size: 13px;
+        }
+        button:hover { background: #0056b3; }
+        button.reset { background: #6c757d; grid-column: span 2; }
+
+        #canvas-container { width: 100vw; height: 100vh; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+
+    <div id="canvas-container"></div>
+
+    <div id="controls">
+        <h2>數B 圓錐曲線實驗室</h2>
+        
+        <div class="control-group">
+            <label>平面角度 (與水平夾角)</label>
+            <input type="range" id="angleSlider" min="0" max="90" value="0" step="0.1">
+            <div style="text-align: right; font-size: 12px; color: #888;">
+                目前: <span id="angleVal">0</span>° (母線角: 45°)
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label>平面高度 (上下位移)</label>
+            <input type="range" id="offsetSlider" min="-3" max="3" value="1.5" step="0.1">
+        </div>
+
+        <div class="status-box">
+            <div>當前截痕形狀</div>
+            <div id="curveType">圓 (Circle)</div>
+            <div id="mathNote">平面垂直於軸線</div>
+        </div>
+
+        <div class="btn-grid">
+            <button onclick="setPreset('circle')">圓形</button>
+            <button onclick="setPreset('ellipse')">橢圓</button>
+            <button onclick="setPreset('parabola')">拋物線</button>
+            <button onclick="setPreset('hyperbola')">雙曲線</button>
+            <button class="reset" onclick="setPreset('point')">退化：點 / 線</button>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. 初始化場景 (Scene Setup) ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x222222);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(8, 5, 8);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+
+        // 燈光
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(5, 10, 7);
+        scene.add(dirLight);
+
+        // --- 2. 建立雙圓錐 (Double Cone) ---
+        // 為了方便計算，設定半頂角為 45度 (半徑 = 高度)
+        const coneHeight = 4;
+        const coneRadius = 4;
+        const coneGeo = new THREE.ConeGeometry(coneRadius, coneHeight, 64, 1, true); // open ended
+        
+        // 材質設定：半透明網格
+        const coneMat = new THREE.MeshPhongMaterial({ 
+            color: 0x00aaff, 
+            transparent: true, 
+            opacity: 0.3, 
+            side: THREE.DoubleSide,
+            shininess: 100
+        });
+        const wireMat = new THREE.MeshBasicMaterial({ color: 0x0044aa, wireframe: true, transparent: true, opacity: 0.1 });
+
+        // 上圓錐
+        const topCone = new THREE.Mesh(coneGeo, coneMat);
+        topCone.position.y = coneHeight / 2;
+        topCone.add(new THREE.Mesh(coneGeo, wireMat)); // 加框線增加立體感
+        scene.add(topCone);
+
+        // 下圓錐 (倒置)
+        const bottomCone = new THREE.Mesh(coneGeo, coneMat);
+        bottomCone.rotation.x = Math.PI;
+        bottomCone.position.y = -coneHeight / 2;
+        bottomCone.add(new THREE.Mesh(coneGeo, wireMat));
+        scene.add(bottomCone);
+
+        // --- 3. 建立切割平面 (Cutting Plane) ---
+        const planeGeo = new THREE.PlaneGeometry(12, 12);
+        const planeMat = new THREE.MeshPhongMaterial({ 
+            color: 0xffdd00, 
+            transparent: true, 
+            opacity: 0.2, 
+            side: THREE.DoubleSide,
+            depthWrite: false
+        });
+        const cutPlane = new THREE.Mesh(planeGeo, planeMat);
+        scene.add(cutPlane);
+
+        // --- 4. 建立截痕曲線 (Intersection Curve) ---
+        // 使用 LineSegments 來繪製，因為雙曲線會斷開
+        const curveMat = new THREE.LineBasicMaterial({ color: 0xff0055, linewidth: 3 });
+        const curveGeo = new THREE.BufferGeometry();
+        // 預分配足夠的頂點空間 (例如 360 * 2 個點)
+        const maxPoints = 1000; 
+        const positions = new Float32Array(maxPoints * 3);
+        curveGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const curveLine = new THREE.Line(curveGeo, curveMat);
+        scene.add(curveLine);
+
+        const planeNormal = new THREE.Vector3();
+
+        // --- 5. 核心數學邏輯 (Math Logic) ---
+        
+        // 參數設定
+        let planeAngleDeg = 0; // 平面與水平面的夾角 beta
+        let planeOffset = 1.5; // 平面中心高度 d
+        const coneAngleDeg = 45; // 圓錐母線角 alpha
+
+        function update() {
+            // 1. 更新平面視覺位置
+            const beta = THREE.MathUtils.degToRad(planeAngleDeg);
+            cutPlane.rotation.x = Math.PI / 2 - beta; // 水平時 rotation.x = 90度
+            cutPlane.position.y = planeOffset;
+
+            // 2. 判斷曲線類型 (數B核心觀念)
+            // 比較「平面角 beta」與「圓錐母線角 alpha (45度)」
+            const epsilon = 0.5; // 容許誤差
+            let typeText = "";
+            let noteText = "";
+            
+            // 處理退化情況 (通過頂點)
+            const isThroughVertex = Math.abs(planeOffset * Math.cos(beta)) < 0.1; // 簡化判斷
+
+            if (Math.abs(planeAngleDeg - 0) < epsilon) {
+                typeText = "圓 (Circle)";
+                noteText = "平面角度 = 0° (水平切割)";
+            } else if (Math.abs(planeAngleDeg - coneAngleDeg) < epsilon) {
+                typeText = "拋物線 (Parabola)";
+                noteText = "平面角度 = 母線角度 (45°) 平行於母線";
+            } else if (planeAngleDeg < coneAngleDeg) {
+                typeText = "橢圓 (Ellipse)";
+                noteText = "平面角度 < 母線角度";
+            } else {
+                typeText = "雙曲線 (Hyperbola)";
+                noteText = "平面角度 > 母線角度 (同時切到上下錐)";
+            }
+            
+            if (isThroughVertex && planeOffset === 0) {
+                 typeText += " (退化)";
+                 noteText = "平面通過圓錐頂點";
+            }
+
+            document.getElementById('curveType').innerText = typeText;
+            document.getElementById('mathNote').innerText = noteText;
+            document.getElementById('angleVal').innerText = planeAngleDeg.toFixed(1);
+
+            // 3. 計算截痕點 (Analytic Geometry)
+            // 圓錐方程式 (簡化 r=y, 上錐y>0, 下錐y<0)
+            // x = r * cos(theta)
+            // z = r * sin(theta)
+            // y = r (上) 或 -r (下)
+            
+            // 平面方程式 (在 x=0 旋轉): 
+            // 坐標系調整：讓平面繞 X 軸旋轉。
+            // 點 P(x, y, z). 平面法向量 n = (0, cos(beta), sin(beta))
+            // 平面方程式: y * cos(beta) + z * sin(beta) = planeOffset * cos(beta) (近似修正)
+            // 讓我們用更直觀的代入法：
+            // 設平面上的局部坐標 (u, v)，對應世界坐標：
+            // x = u
+            // y = v * sin(beta) + planeOffset
+            // z = v * cos(beta)
+            // 代入圓錐方程式 x^2 + z^2 = y^2
+            // u^2 + (v cos beta)^2 = (v sin beta + offset)^2
+            
+            // 這是一個關於 u, v 的二次曲線，我們需要解出它並轉回 3D 點。
+            // 但為了畫線方便，我們改用圓錐參數式代入平面：
+            // 平面法向量 n = (0, cos(beta), sin(beta)) 
+            // 平面方程式: y*cos(beta) + z*sin(beta) = D
+            // 其中 D = planeOffset * cos(beta) (當 z=0, y=offset)
+            
+            // 代入上錐 (y = r, x = r cos t, z = r sin t):
+            // r*cos(beta) + r*sin(t)*sin(beta) = D
+            // r * (cos(beta) + sin(t)*sin(beta)) = D
+            // r = D / (cos(beta) + sin(t)*sin(beta))
+            
+            planeNormal.set(0, 0, 1).applyQuaternion(cutPlane.quaternion).normalize();
+            const planeConstant = planeNormal.dot(cutPlane.position);
+
+            const pts = [];
+            
+            // 計算上錐的點
+            generateConePoints(pts, planeNormal, planeConstant, 1); // 1 for top cone
+            // 計算下錐的點
+            generateConePoints(pts, planeNormal, planeConstant, -1); // -1 for bottom cone
+
+            // 更新 Line Geometry
+            const positions = curveLine.geometry.attributes.position.array;
+            let idx = 0;
+            
+            // 將點連成線。注意：雙曲線會斷開，需要分段繪製。
+            // 這裡簡單處理：如果兩點距離太遠(跨越無限大或切換錐體)，插入一個斷點(NaN或重複點)
+            // 為了簡單，我們畫點集 (LineLoop 不適合雙曲線，改用 LineSegments 或自行管理 Line)
+            // 我們這裡用 Line，但在斷開處填入重複點以隱藏連線(視覺詐欺)或單純畫出來
+            
+            for (let i = 0; i < pts.length; i++) {
+                if (idx >= maxPoints * 3) break;
+                positions[idx++] = pts[i].x;
+                positions[idx++] = pts[i].y;
+                positions[idx++] = pts[i].z;
+            }
+            
+            // 清除剩餘點
+            for (let i = idx; i < maxPoints * 3; i++) positions[i] = 0;
+            
+            curveLine.geometry.setDrawRange(0, pts.length);
+            curveLine.geometry.attributes.position.needsUpdate = true;
+        }
+
+        function generateConePoints(pointsArray, planeNormal, planeConstant, coneSign) {
+            // coneSign: 1 for Top (y=r), -1 for Bottom (y=-r)
+            // 平面方程式：n·(x, y, z) = planeConstant
+            // 圓錐參數式：x = r*cos(t), z = r*sin(t), y = coneSign * r
+            // 代入後：r * (n_x cos t + n_y * coneSign + n_z sin t) = planeConstant
+            
+            let prevR = null;
+            let prevValid = false;
+
+            // 解析度：角度步進
+            const steps = 360; 
+            for (let i = 0; i <= steps; i++) {
+                const t = (i / steps) * Math.PI * 2;
+                const denominator = planeNormal.x * Math.cos(t) + planeNormal.y * coneSign + planeNormal.z * Math.sin(t);
+                
+                // 避免分母為 0 或太小 (拋物線的漸近情況)
+                if (Math.abs(denominator) < 0.01) {
+                    prevValid = false;
+                    continue;
+                }
+
+                const r = planeConstant / denominator;
+
+                // 檢查 r 是否為正 (圓錐半徑必須 >= 0)
+                // 且限制高度，避免畫到無窮遠
+                if (r >= 0 && r < 15) {
+                    const x = r * Math.cos(t);
+                    const z = r * Math.sin(t);
+                    const y = coneSign * r;
+
+                    // 檢查距離上次是否太遠 (處理雙曲線跨越無限遠的情況)
+                    if (prevValid && prevR !== null && Math.abs(r - prevR) > 3) {
+                        prevValid = false;
+                    }
+
+                    pointsArray.push(new THREE.Vector3(x, y, z));
+                    prevR = r;
+                    prevValid = true;
+                } else {
+                    prevValid = false;
+                }
+            }
+        }
+
+        // --- 6. 互動與事件 ---
+        const angleSlider = document.getElementById('angleSlider');
+        const offsetSlider = document.getElementById('offsetSlider');
+
+        angleSlider.addEventListener('input', (e) => {
+            planeAngleDeg = parseFloat(e.target.value);
+            requestAnimationFrame(update);
+        });
+
+        offsetSlider.addEventListener('input', (e) => {
+            planeOffset = parseFloat(e.target.value);
+            requestAnimationFrame(update);
+        });
+
+        // 預設按鈕功能
+        window.setPreset = function(type) {
+            switch(type) {
+                case 'circle':
+                    planeAngleDeg = 0; planeOffset = 1.5; break;
+                case 'ellipse':
+                    planeAngleDeg = 25; planeOffset = 1.5; break;
+                case 'parabola':
+                    planeAngleDeg = 45; planeOffset = 1.5; break;
+                case 'hyperbola':
+                    planeAngleDeg = 75; planeOffset = 0.5; break;
+                case 'point': // 退化
+                    planeAngleDeg = 0; planeOffset = 0; break;
+            }
+            // 更新 UI
+            angleSlider.value = planeAngleDeg;
+            offsetSlider.value = planeOffset;
+            update();
+        };
+
+        // RWD
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // 啟動循環
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        
+        // 初始執行
+        update();
+        animate();
+
+    </script>
+</body>
+</html>
