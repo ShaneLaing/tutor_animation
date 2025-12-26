@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>相關係數互動教學</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Google Fonts: Noto Sans TC -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen flex flex-col items-center py-8 px-4">
+
+    <!-- Header Section -->
+    <header class="text-center mb-8 max-w-2xl">
+        <div class="inline-block bg-blue-100 text-blue-800 px-4 py-1 rounded-full text-sm font-semibold mb-2">
+            互動式數學家教
+        </div>
+        <h1 class="text-3xl md:text-4xl font-bold text-gray-800 mb-2">二維數據分析：相關係數 ($r$)</h1>
+        <p class="text-gray-600">
+            拖動下方的滑桿，觀察 <span class="font-bold text-indigo-600">符號</span> 與 <span class="font-bold text-pink-600">數值</span> 如何影響散佈圖的形狀。
+        </p>
+    </header>
+
+    <!-- Main Content Grid -->
+    <main class="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-3 gap-8">
+        
+        <!-- Controls & Explanation Panel -->
+        <div class="lg:col-span-1 flex flex-col gap-6 order-2 lg:order-1">
+            
+            <!-- Control Card -->
+            <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
+                <label for="rSlider" class="block text-lg font-bold text-gray-700 mb-4">
+                    調整相關係數 ($r$)
+                </label>
+                
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-gray-400 font-mono">-1</span>
+                    <span class="text-gray-400 font-mono">0</span>
+                    <span class="text-gray-400 font-mono">+1</span>
+                </div>
+                
+                <input type="range" id="rSlider" min="-1" max="1" step="0.01" value="0" 
+                    class="w-full h-3 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600 hover:bg-gray-300 transition duration-150">
+                
+                <div class="mt-6 text-center">
+                    <span class="text-gray-500 text-sm">目前設定</span>
+                    <div class="text-5xl font-bold text-blue-600 font-mono mt-1" id="rValueDisplay">0.00</div>
+                </div>
+
+                <button id="regenerateBtn" class="mt-6 w-full py-2 px-4 bg-gray-800 hover:bg-gray-900 text-white rounded-lg transition shadow-md flex items-center justify-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    重新生成雜訊
+                </button>
+            </div>
+
+            <!-- Analysis Card -->
+            <div class="bg-white p-6 rounded-xl shadow-lg border-l-4 border-indigo-500">
+                <h3 class="text-lg font-bold text-gray-800 mb-3 flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                    </svg>
+                    老師的分析
+                </h3>
+                <div id="analysisText" class="space-y-3 text-gray-600 leading-relaxed">
+                    <!-- Dynamic Text will be injected here -->
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Chart Visualization -->
+        <div class="lg:col-span-2 bg-white p-4 rounded-xl shadow-lg border border-gray-200 order-1 lg:order-2 flex flex-col">
+            <div class="relative w-full aspect-square md:aspect-video flex-grow">
+                <canvas id="scatterChart"></canvas>
+            </div>
+            <div class="mt-4 text-center text-sm text-gray-400">
+                X 軸與 Y 軸範圍固定為 -20 到 20，以便觀察斜率與集中度。
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        // --- Configuration ---
+        const pointCount = 100;
+        const ctx = document.getElementById('scatterChart').getContext('2d');
+        const rSlider = document.getElementById('rSlider');
+        const rValueDisplay = document.getElementById('rValueDisplay');
+        const regenerateBtn = document.getElementById('regenerateBtn');
+        const analysisText = document.getElementById('analysisText');
+
+        // --- Helper: Gaussian Random (Box-Muller transform) ---
+        // Generates numbers with mean 0 and variance 1, mostly between -3 and 3
+        function randomNormal() {
+            let u = 0, v = 0;
+            while(u === 0) u = Math.random(); //Converting [0,1) to (0,1)
+            while(v === 0) v = Math.random();
+            return Math.sqrt( -2.0 * Math.log( u ) ) * Math.cos( 2.0 * Math.PI * v );
+        }
+
+        // --- Data Generation Logic ---
+        function generateData(r) {
+            const data = [];
+            
+            // SPECIAL CASE: When r is exactly 0 (or very close)
+            // Generate 25 points in Q1, then mirror to Q2, Q3, Q4 for perfect symmetry.
+            if (Math.abs(r) < 0.001) { 
+                for (let i = 0; i < 25; i++) {
+                    // Generate random point strictly in Quadrant 1
+                    let x = Math.abs(randomNormal() * 5); 
+                    let y = Math.abs(randomNormal() * 5);
+                    
+                    // Add 4 symmetric points
+                    data.push({x: x, y: y});       // Q1 (First Quadrant)
+                    data.push({x: -x, y: y});      // Q2 (Second Quadrant)
+                    data.push({x: -x, y: -y});     // Q3 (Third Quadrant)
+                    data.push({x: x, y: -y});      // Q4 (Fourth Quadrant)
+                }
+            } else {
+                // NORMAL LOGIC for r != 0 (Linear Model with Noise)
+                for (let i = 0; i < pointCount; i++) {
+                    // Generate X distributed around 0
+                    let x = randomNormal() * 5; 
+                    
+                    // Noise factor
+                    let noiseScale = (1 - Math.abs(r)) * 10; 
+                    let noise = randomNormal() * noiseScale;
+
+                    // Calculate Y = r*x + noise
+                    let y = (r * x) + noise;
+
+                    data.push({x: x, y: y});
+                }
+            }
+            return data;
+        }
+
+        // --- Chart Initialization ---
+        const scatterChart = new Chart(ctx, {
+            type: 'scatter',
+            data: {
+                datasets: [{
+                    label: '數據點',
+                    data: generateData(0),
+                    backgroundColor: 'rgba(59, 130, 246, 0.6)', 
+                    borderColor: 'rgba(37, 99, 235, 1)',      
+                    borderWidth: 1,
+                    pointRadius: 5,
+                    pointHoverRadius: 7
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: {
+                    duration: 300 
+                },
+                scales: {
+                    x: {
+                        min: -20,
+                        max: 20,
+                        grid: { color: '#e5e7eb', drawBorder: true, lineWidth: 1 },
+                        title: { display: true, text: 'X 變數', color: '#6b7280', font: {weight: 'bold'} },
+                        // Add clearer axis lines for quadrants
+                        border: { display: true, color: '#9ca3af', width: 2 }
+                    },
+                    y: {
+                        min: -20,
+                        max: 20,
+                        grid: { color: '#e5e7eb', drawBorder: true, lineWidth: 1 },
+                        title: { display: true, text: 'Y 變數', color: '#6b7280', font: {weight: 'bold'} },
+                        border: { display: true, color: '#9ca3af', width: 2 }
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: (context) => `(${context.raw.x.toFixed(1)}, ${context.raw.y.toFixed(1)})`
+                        }
+                    },
+                    // Custom plugin to draw heavy axis lines at 0,0
+                    annotation: {
+                        // Chart.js annotation plugin is not loaded, so we rely on grid lines.
+                        // But we can improve the grid config above.
+                    }
+                }
+            }
+        });
+
+        // --- Update UI & Logic ---
+        function updateAnalysis(r) {
+            let correlationType = "";
+            let strength = "";
+            let visualDesc = "";
+            let colorClass = "text-gray-800";
+            
+            const absR = Math.abs(r);
+
+            // 1. Sign Analysis
+            if (r > 0.1) {
+                correlationType = "正相關 (Positive)";
+                visualDesc = "隨著 X 增加，Y 也傾向於增加。點的分佈像是一條<span class='text-red-500 font-bold'>上坡</span>的路。";
+                colorClass = "text-red-600";
+            } else if (r < -0.1) {
+                correlationType = "負相關 (Negative)";
+                visualDesc = "隨著 X 增加，Y 傾向於減少。點的分佈像是一條<span class='text-green-600 font-bold'>下坡</span>的路。";
+                colorClass = "text-green-600";
+            } else {
+                correlationType = "零相關 (Zero)";
+                if (absR < 0.001) {
+                     visualDesc = "完全對稱分佈。資料點在四個象限中呈現<span class='text-gray-600 font-bold'>鏡像對稱</span>，正負相互抵消，完全沒有線性趨勢。";
+                } else {
+                     visualDesc = "X 的變化對 Y 沒有明顯影響。點的分佈呈現<span class='text-gray-600 font-bold'>散亂</span>的狀態，看不出斜度。";
+                }
+                colorClass = "text-gray-600";
+            }
+
+            // 2. Strength Analysis
+            if (absR >= 0.7) {
+                strength = "高度相關 (強)";
+            } else if (absR >= 0.3) {
+                strength = "中度相關 (中)";
+            } else {
+                strength = "低度相關 (弱)";
+            }
+
+            // Generate HTML
+            let html = `
+                <div class="mb-2">
+                    <span class="font-bold text-gray-500 text-sm block">符號 (方向)</span>
+                    <span class="text-xl font-bold ${colorClass}">${correlationType}</span>
+                </div>
+                <div class="mb-2">
+                    <span class="font-bold text-gray-500 text-sm block">數值 (強度)</span>
+                    <span class="text-xl font-bold text-gray-800">${strength}</span>
+                </div>
+                <hr class="border-gray-200 my-2">
+                <p class="text-sm">${visualDesc}</p>
+            `;
+            
+            if (absR > 0.9) {
+                html += `<p class="text-sm mt-2 bg-yellow-50 p-2 rounded text-yellow-800">💡 <strong>觀察：</strong> 相關係數接近 1 時，點幾乎排成一直線！</p>`;
+            } else if (absR < 0.001) {
+                 html += `<p class="text-sm mt-2 bg-gray-100 p-2 rounded text-gray-700">💡 <strong>教學重點：</strong> 當 r=0 時，我們強制讓點在四個象限對稱，這在數學上保證了相關係數嚴格為 0。</p>`;
+            }
+
+            analysisText.innerHTML = html;
+        }
+
+        function handleUpdate() {
+            const r = parseFloat(rSlider.value);
+            rValueDisplay.textContent = r.toFixed(2);
+            
+            // Update Chart Data
+            const newData = generateData(r);
+            scatterChart.data.datasets[0].data = newData;
+            
+            // Dynamic Color Change based on r sign
+            if (r > 0) {
+                scatterChart.data.datasets[0].backgroundColor = 'rgba(239, 68, 68, 0.6)'; // Red
+                scatterChart.data.datasets[0].borderColor = 'rgba(220, 38, 38, 1)';
+            } else if (r < 0) {
+                scatterChart.data.datasets[0].backgroundColor = 'rgba(22, 163, 74, 0.6)'; // Green
+                scatterChart.data.datasets[0].borderColor = 'rgba(21, 128, 61, 1)';
+            } else {
+                scatterChart.data.datasets[0].backgroundColor = 'rgba(107, 114, 128, 0.6)'; // Gray
+                scatterChart.data.datasets[0].borderColor = 'rgba(75, 85, 99, 1)';
+            }
+
+            scatterChart.update();
+            updateAnalysis(r);
+        }
+
+        // --- Event Listeners ---
+        rSlider.addEventListener('input', handleUpdate);
+        regenerateBtn.addEventListener('click', handleUpdate);
+
+        // --- Initial Load ---
+        handleUpdate();
+
+    </script>
+</body>
+</html>
