@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>一維數據分析：線性變換教學</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
+    
+    <!-- MathJax -->
+    <script>
+      MathJax = {
+        tex: {
+          inlineMath: [['$', '$'], ['\\(', '\\)']]
+        }
+      };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+
+    <style>
+        body { font-family: 'Noto Sans TC', sans-serif; }
+        /* Custom range slider styling */
+        input[type=range] {
+            -webkit-appearance: none; 
+            background: transparent; 
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px; width: 16px; border-radius: 50%; background: #4f46e5; cursor: pointer; margin-top: -6px;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%; height: 4px; cursor: pointer; background: #e5e7eb; border-radius: 2px;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen flex flex-col items-center py-6 px-4">
+
+    <!-- Header -->
+    <header class="text-center mb-6 max-w-3xl">
+        <div class="inline-block bg-purple-100 text-purple-800 px-3 py-1 rounded-full text-xs font-bold mb-2">
+            一維數據分析
+        </div>
+        <h1 class="text-3xl font-bold text-gray-800 mb-2">數據的線性變換：$Y = aX + b$</h1>
+        <p class="text-gray-600 text-sm">
+            藍色是原始數據 $X$，紅色是變換後的數據 $Y$。<br>
+            觀察 <span class="font-bold text-blue-600">平均數 (中心位置)</span> 與 <span class="font-bold text-pink-600">標準差 (胖瘦程度)</span> 的變化。
+        </p>
+    </header>
+
+    <!-- Main Layout -->
+    <main class="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        <!-- Left Panel: Controls -->
+        <div class="lg:col-span-4 space-y-4">
+            
+            <!-- Section 1: X Distribution Controls -->
+            <div class="bg-white p-5 rounded-xl shadow-md border-l-4 border-blue-500">
+                <h2 class="text-lg font-bold text-gray-800 mb-4 border-b pb-2">1. 設定原始數據 $X$</h2>
+                
+                <!-- Mean X Slider -->
+                <div class="mb-4">
+                    <div class="flex justify-between mb-1">
+                        <label class="text-sm font-medium text-gray-700">平均數 $\mu_X$ (中心)</label>
+                        <span id="val_mu_x" class="text-sm font-bold text-blue-600">0</span>
+                    </div>
+                    <input type="range" id="slider_mu_x" min="-20" max="20" step="1" value="0" class="w-full">
+                </div>
+
+                <!-- Sigma X Slider -->
+                <div>
+                    <div class="flex justify-between mb-1">
+                        <label class="text-sm font-medium text-gray-700">標準差 $\sigma_X$ (離散度)</label>
+                        <span id="val_sigma_x" class="text-sm font-bold text-blue-600">2</span>
+                    </div>
+                    <input type="range" id="slider_sigma_x" min="0.5" max="5" step="0.1" value="2" class="w-full">
+                </div>
+            </div>
+
+            <!-- Section 2: Transformation Controls -->
+            <div class="bg-white p-5 rounded-xl shadow-md border-l-4 border-red-500">
+                <h2 class="text-lg font-bold text-gray-800 mb-4 border-b pb-2">2. 線性變換參數</h2>
+                
+                <!-- a Slider -->
+                <div class="mb-4">
+                    <div class="flex justify-between mb-1">
+                        <label class="text-sm font-medium text-gray-700">伸縮倍數 $a$ (斜率)</label>
+                        <span id="val_a" class="text-sm font-bold text-red-600">1</span>
+                    </div>
+                    <input type="range" id="slider_a" min="-3" max="3" step="0.1" value="1" class="w-full">
+                    <p class="text-xs text-gray-400 mt-1">影響標準差與平均數</p>
+                </div>
+
+                <!-- b Slider -->
+                <div>
+                    <div class="flex justify-between mb-1">
+                        <label class="text-sm font-medium text-gray-700">平移常數 $b$ (截距)</label>
+                        <span id="val_b" class="text-sm font-bold text-red-600">0</span>
+                    </div>
+                    <input type="range" id="slider_b" min="-30" max="30" step="1" value="0" class="w-full">
+                    <p class="text-xs text-gray-400 mt-1">只影響平均數</p>
+                </div>
+            </div>
+
+            <!-- Section 3: Calculated Statistics -->
+            <div class="bg-gray-800 text-white p-5 rounded-xl shadow-md">
+                <h2 class="text-md font-bold mb-3 text-gray-300 uppercase tracking-wider">數據儀表板</h2>
+                
+                <div class="grid grid-cols-2 gap-4">
+                    <!-- X Stats -->
+                    <div class="p-2 bg-gray-700 rounded">
+                        <div class="text-xs text-blue-300 mb-1">原始數據 X</div>
+                        <div class="text-sm">$\mu_X =$ <span id="disp_mu_x" class="font-mono font-bold">0</span></div>
+                        <div class="text-sm">$\sigma_X =$ <span id="disp_sigma_x" class="font-mono font-bold">2</span></div>
+                    </div>
+                    
+                    <!-- Y Stats -->
+                    <div class="p-2 bg-gray-700 rounded border border-red-500/50 relative overflow-hidden">
+                        <div class="absolute top-0 right-0 bg-red-600 text-[10px] px-1">變換後</div>
+                        <div class="text-xs text-red-300 mb-1">新數據 Y</div>
+                        <div class="text-sm">$\mu_Y =$ <span id="disp_mu_y" class="font-mono font-bold text-yellow-300">0</span></div>
+                        <div class="text-sm">$\sigma_Y =$ <span id="disp_sigma_y" class="font-mono font-bold text-yellow-300">2</span></div>
+                    </div>
+                </div>
+                
+                <div class="mt-4 pt-3 border-t border-gray-600 text-xs text-gray-300 space-y-1">
+                    <p>公式驗證：</p>
+                    <p>$\mu_Y = a\mu_X + b$</p>
+                    <p>$\sigma_Y = |a|\sigma_X$ <span class="text-gray-500">(注意絕對值)</span></p>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Right Panel: Visualization -->
+        <div class="lg:col-span-8 flex flex-col gap-4">
+            
+            <!-- Chart Container -->
+            <div class="bg-white p-4 rounded-xl shadow-lg border border-gray-200 flex-grow h-[400px] lg:h-auto relative">
+                <canvas id="distributionChart"></canvas>
+            </div>
+
+            <!-- Teacher's Analysis (Dynamic Feedback) -->
+            <div class="bg-indigo-50 p-4 rounded-xl border border-indigo-200 text-indigo-900 text-sm">
+                <div class="font-bold mb-1 flex items-center gap-2">
+                    <span class="text-xl">👩‍🏫</span> 老師的分析：
+                </div>
+                <div id="teacherComment" class="leading-relaxed">
+                    <!-- Dynamic text here -->
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // --- Setup ---
+        const ctx = document.getElementById('distributionChart').getContext('2d');
+        
+        // Input Elements
+        const s_mu_x = document.getElementById('slider_mu_x');
+        const s_sigma_x = document.getElementById('slider_sigma_x');
+        const s_a = document.getElementById('slider_a');
+        const s_b = document.getElementById('slider_b');
+
+        // Display Elements
+        const v_mu_x = document.getElementById('val_mu_x');
+        const v_sigma_x = document.getElementById('val_sigma_x');
+        const v_a = document.getElementById('val_a');
+        const v_b = document.getElementById('val_b');
+        
+        const d_mu_x = document.getElementById('disp_mu_x');
+        const d_sigma_x = document.getElementById('disp_sigma_x');
+        const d_mu_y = document.getElementById('disp_mu_y');
+        const d_sigma_y = document.getElementById('disp_sigma_y');
+        const teacherComment = document.getElementById('teacherComment');
+
+        // --- Math Logic: Normal Distribution PDF ---
+        function normalPDF(x, mean, sigma) {
+            if (sigma === 0) return x === mean ? 1 : 0; // Handle 0 sigma edge case roughly
+            const variance = sigma * sigma;
+            return (1 / (Math.sqrt(2 * Math.PI * variance))) * Math.exp(-(Math.pow(x - mean, 2)) / (2 * variance));
+        }
+
+        // Generate data points for the chart
+        function generateCurveData(mean, sigma) {
+            const data = [];
+            // Fixed range for visualization: -80 to 80 to allow seeing shifts
+            const start = -80;
+            const end = 80;
+            const step = 0.5;
+
+            // Optimization: Only generate points where PDF is non-negligible
+            // or just generate all for smoothness on this specific fixed axis
+            for (let x = start; x <= end; x += step) {
+                data.push({
+                    x: x,
+                    y: normalPDF(x, mean, Math.abs(sigma)) // Use abs(sigma) just in case
+                });
+            }
+            return data;
+        }
+
+        // --- Chart Initialization ---
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                datasets: [
+                    {
+                        label: '原始數據 X',
+                        data: [], // Filled later
+                        borderColor: 'rgba(37, 99, 235, 0.8)', // Blue
+                        backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        fill: true,
+                        tension: 0.4
+                    },
+                    {
+                        label: '變換後 Y = aX + b',
+                        data: [], // Filled later
+                        borderColor: 'rgba(220, 38, 38, 0.8)', // Red
+                        backgroundColor: 'rgba(220, 38, 38, 0.1)',
+                        borderWidth: 3,
+                        pointRadius: 0,
+                        borderDash: [5, 5], // Dashed line to distinguish
+                        fill: true,
+                        tension: 0.4
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { intersect: false, mode: 'index' },
+                scales: {
+                    x: {
+                        type: 'linear',
+                        min: -60,
+                        max: 60,
+                        title: { display: true, text: '數值大小' },
+                        grid: { color: '#e5e7eb' }
+                    },
+                    y: {
+                        display: false, // Hide probability density numbers to simplify
+                        min: 0,
+                        // Dynamic max handled in update? Or fixed? 
+                        // Let's set a reasonable fixed max to show height changes nicely.
+                        // Max height for sigma=0.5 is ~0.8. Let's set max to 1.0
+                        max: 0.9
+                    }
+                },
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: { usePointStyle: true }
+                    },
+                    tooltip: {
+                        enabled: false // Disable tooltips to focus on shape
+                    }
+                }
+            }
+        });
+
+        // --- Update Logic ---
+        function update() {
+            // 1. Get Values
+            const mu_x = parseFloat(s_mu_x.value);
+            const sigma_x = parseFloat(s_sigma_x.value);
+            const a = parseFloat(s_a.value);
+            const b = parseFloat(s_b.value);
+
+            // 2. Calculate Y Stats
+            const mu_y = a * mu_x + b;
+            const sigma_y = Math.abs(a) * sigma_x;
+
+            // 3. Update UI Text
+            v_mu_x.innerText = mu_x;
+            v_sigma_x.innerText = sigma_x;
+            v_a.innerText = a;
+            v_b.innerText = b;
+
+            d_mu_x.innerText = mu_x.toFixed(2);
+            d_sigma_x.innerText = sigma_x.toFixed(2);
+            
+            d_mu_y.innerText = mu_y.toFixed(2);
+            d_sigma_y.innerText = sigma_y.toFixed(2);
+
+            // 4. Update Chart Data
+            // We need to redraw the curves.
+            
+            // X Curve
+            chart.data.datasets[0].data = generateCurveData(mu_x, sigma_x);
+            
+            // Y Curve
+            // Handle edge case where a=0 (Sigma=0 -> Infinite height). 
+            // We clamp visualization sigma to min 0.1 to avoid breaking chart, but display 0 text.
+            const vis_sigma_y = sigma_y < 0.1 ? 0.1 : sigma_y;
+            chart.data.datasets[1].data = generateCurveData(mu_y, vis_sigma_y);
+
+            chart.update('none'); // 'none' mode prevents full re-render animation lag
+
+            // 5. Teacher Commentary
+            generateAnalysis(a, b, sigma_x, sigma_y);
+        }
+
+        function generateAnalysis(a, b, sigmaX, sigmaY) {
+            let texts = [];
+
+            // A Analysis (Scaling)
+            if (a === 1) {
+                texts.push("<strong>a = 1</strong>：圖形的胖瘦（標準差）不變，僅發生平移。");
+            } else if (a === 0) {
+                texts.push("<strong>a = 0</strong>：所有數據都變成了常數 b。標準差變為 0（圖形變成一根細針）。");
+            } else if (a > 1) {
+                texts.push(`<strong>|a| > 1</strong>：數據被拉開了！標準差變大 (${sigmaY.toFixed(1)})，圖形變得<strong>更扁平、更分散</strong>。`);
+            } else if (Math.abs(a) < 1 && a !== 0) {
+                texts.push(`<strong>|a| < 1</strong>：數據被壓縮了！標準差變小 (${sigmaY.toFixed(1)})，圖形變得<strong>更瘦高、更集中</strong>。`);
+            } else if (a === -1) {
+                texts.push("<strong>a = -1</strong>：圖形以 Y 軸為中心進行了翻轉，標準差大小不變。");
+            }
+
+            if (a < 0) {
+                texts.push("注意 <strong>a 是負數</strong>，但標準差 $\\sigma_Y$ 永遠是正的（因為取了絕對值 $|a|$）。");
+            }
+
+            // B Analysis (Shifting)
+            if (b !== 0) {
+                const dir = b > 0 ? "右" : "左";
+                texts.push(`<strong>b = ${b}</strong>：整個紅色圖形向${dir}平移了 ${Math.abs(b)} 單位。請注意，這<strong>完全不影響</strong>圖形的胖瘦（標準差）。`);
+            }
+
+            teacherComment.innerHTML = texts.join("<br>");
+            
+            // Re-render MathJax for dynamic content
+            if (window.MathJax && MathJax.typesetPromise) {
+                MathJax.typesetPromise([teacherComment]).catch((err) => console.log('MathJax error:', err));
+            }
+        }
+
+        // --- Event Listeners ---
+        [s_mu_x, s_sigma_x, s_a, s_b].forEach(input => {
+            input.addEventListener('input', update);
+        });
+
+        // Initial Run
+        update();
+
+    </script>
+</body>
+</html>
